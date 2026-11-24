@@ -1,0 +1,7 @@
+/* Bootstrap does the styling; only what it does not cover is here. */
+body { background: var(--bs-tertiary-bg); }
+dt { text-transform: capitalize; }
+dd, td { overflow-wrap: anywhere; }
+summary { cursor: pointer; }
+.output { max-height: 280px; overflow: auto; }
+.page-limit { width: 8rem; }
