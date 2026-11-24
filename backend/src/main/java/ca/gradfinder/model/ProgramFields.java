@@ -3,12 +3,15 @@ package ca.gradfinder.model;
 import java.util.*;
 
 /**
- * The group's agreed columns: key used in ProgramRecord.fields -> column heading.
- * Program Name and URL are not listed because they are ProgramRecord.title and ProgramRecord.url.
+ * The base format, taken from the University of British Columbia file. Every university is fitted to it.
+ * COLUMNS maps the key used in ProgramRecord.fields to the column heading.
+ * Program Name and URL are not in it because they are ProgramRecord.title and ProgramRecord.url.
  * A website rarely gives all of these; leave a key out rather than guess its value.
  */
 public final class ProgramFields {
     private ProgramFields() {}
+    public static final String PROGRAM_NAME = "Program Name";
+    public static final String URL = "URL";
     public static final Map<String, String> COLUMNS;
     static {
         Map<String, String> c = new LinkedHashMap<>();
@@ -49,5 +52,16 @@ public final class ProgramFields {
         c.put("minTimeToCompletion", "Min Time to Completion");
         c.put("maxTimeToCompletion", "Max Time to Completion");
         COLUMNS = Collections.unmodifiableMap(c);
+    }
+
+    /** All headings of the base format, in order. */
+    public static List<String> headings() {
+        List<String> out = new ArrayList<>();
+        COLUMNS.forEach((key, heading) -> {
+            out.add(heading);
+            if (key.equals("specialization")) out.add(PROGRAM_NAME);
+            if (key.equals("faculty")) out.add(URL);
+        });
+        return out;
     }
 }

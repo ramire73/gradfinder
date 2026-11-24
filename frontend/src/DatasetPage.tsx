@@ -15,8 +15,8 @@ export default function DatasetPage() {
         <div className="card-body">
           <h2 className="h5 card-title">Combined dataset</h2>
           <p>{report.programs} programs from {Object.keys(report.programsPerUniversity).length} {Object.keys(report.programsPerUniversity).length === 1 ? 'university' : 'universities'}, in one format.</p>
-          <ul>{Object.entries(report.programsPerUniversity).map(([name, n]) => <li key={name}>{name}: {n}</li>)}</ul>
-          <a className="btn btn-primary me-2" href="/api/dataset.csv" download>Download CSV</a>
+          <ul>{Object.entries(report.programsPerUniversity).map(([name, n]) => <li key={name}>{name}: {n} (<a href={`/api/dataset.csv?university=${encodeURIComponent(name)}`} download={`${name}.csv`}>CSV</a>)</li>)}</ul>
+          <a className="btn btn-primary me-2" href="/api/dataset.csv" download>Download combined CSV</a>
           <a className="btn btn-outline-primary" href="/api/dataset" target="_blank" rel="noreferrer">View JSON</a>
         </div>
       </article>

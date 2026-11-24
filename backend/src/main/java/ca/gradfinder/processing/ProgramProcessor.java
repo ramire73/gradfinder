@@ -16,7 +16,17 @@ public class ProgramProcessor {
                 "tuitionPerCreditDomestic", "tuitionPerCreditInternational", "studentFeesYearly");
         use(new DateNormalizer(), "applicationOpenDate", "canadianApplicationDeadline", "canadianTranscriptDeadline", "canadianRefereeDeadline",
                 "internationalApplicationDeadline", "internationalTranscriptDeadline", "internationalRefereeDeadline");
-        use(new CountNormalizer(), "enrolledStudents", "applications", "offers", "newRegistrations", "totalEnrolment");
+        use(new CountNormalizer(), "enrolledStudents", "applications", "offers", "newRegistrations", "totalEnrolment", "installmentsPerYear");
+        use(new PercentNormalizer(), "graduationRate");
+        use(new YearsNormalizer(), "avgYearsToCompletion", "minTimeToCompletion", "maxTimeToCompletion");
+        use(new EnrolmentYearNormalizer(), "enrolmentYear");
+        // The wording of the base file. These are not split, so the separator never matches.
+        use(new ChoiceNormalizer("(?!)", choices("Coursework only", List.of("Coursework", "Course only"),
+                "Coursework + Thesis required", List.of("Coursework + Thesis"),
+                "Coursework + Options", List.of("Coursework OR Thesis", "Options"),
+                "Coursework + Major Project/Essay required", List.of("Coursework + Major Research Paper", "Coursework + Major Project"),
+                "Coursework + Capstone", List.of(), "Coursework + Internship", List.of(), "Coursework + Practicum / Placement", List.of(),
+                "Thesis", List.of("Thesis only"))), "programComponents");
         use(new IntakeNormalizer(), "intake");
         use(new ChoiceNormalizer("[,;/]| or | and ", choices("In person", List.of("On Campus", "In-person", "Face to face"),
                 "Online", List.of("Distance", "Online only"), "Hybrid", List.of("Blended"))), "deliveryMode");
@@ -39,6 +49,7 @@ public class ProgramProcessor {
     public ProcessedProgram process(ProgramRecord raw) {
         Map<String, String> found = new LinkedHashMap<>(raw.fields());
         if (blank(found.get("degreeLevel"))) found.put("degreeLevel", levelFromTitle(raw.title()));
+        if (blank(found.get("programType"))) found.put("programType", typeFromComponents(found.get("programComponents")));
         Map<String, String> fields = new LinkedHashMap<>(), notes = new LinkedHashMap<>(), problems = new LinkedHashMap<>();
         // The same order for every university: agreed columns first, then extra fields.
         List<String> keys = new ArrayList<>(ProgramFields.COLUMNS.keySet());
@@ -56,6 +67,17 @@ public class ProgramProcessor {
     }
 
     private boolean blank(String value) { return value == null || value.isBlank(); }
+
+    /** "Coursework + Options" does not say which options, so it gives no type. */
+    private String typeFromComponents(String components) {
+        if (blank(components)) return "";
+        return switch (normalizers.get("programComponents").normalize(components).value()) {
+            case "Coursework only", "Coursework + Major Project/Essay required", "Coursework + Capstone",
+                 "Coursework + Internship", "Coursework + Practicum / Placement" -> "Course Based";
+            case "Coursework + Thesis required", "Thesis" -> "Thesis Based";
+            default -> "";
+        };
+    }
 
     private String levelFromTitle(String title) {
         String t = title.toLowerCase(Locale.ROOT);

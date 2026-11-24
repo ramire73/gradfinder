@@ -78,7 +78,9 @@ The frontend build also checks the TypeScript types.
 | Folder | Contents |
 |---|---|
 | `backend/src/main/java/ca/gradfinder` | Backend code, one package per area |
-| `backend/data/programs` | Program data, one JSON file per university |
+| `backend/data/csv` | CSV files from earlier crawls, one per university, named after it (input) |
+| `backend/data/output` | CSV made from each website crawled by this app, for example `ualberta_programs.csv` |
+| `backend/data/programs` | Crawled program data, one JSON file per university |
 | `backend/data/html` | Saved copies of crawled pages (local only) |
 | `backend/data/search-history.json` | Search frequency (local only) |
 | `frontend/src` | React pages: `SearchPage`, `ToolsPage`, `CrawlerPage`, `DatasetPage` |
@@ -112,9 +114,17 @@ Paths are under `backend/src/main/java/ca/gradfinder`.
 
 ## Data processing and organization
 
-1. Each university's parser saves its records in `backend/data/programs`, with the values as the website writes them.
-2. `ProgramProcessor` puts every value into the common format below.
+The base format is the University of British Columbia file: its 38 columns, their order and its wording for
+Program Components. Every other university is fitted to it (`model/ProgramFields`).
+
+1. Values are kept as the source writes them. Each `ProgramSource` supplies programs:
+   `CsvProgramSource` reads `backend/data/csv/<university name>.csv`, and `ProgramStore` reads crawled programs
+   from `backend/data/programs`. For the same URL, crawled values win and the CSV fills the gaps.
+2. `ProgramProcessor` puts every value into the base format below.
 3. `ProgramDataset` combines all universities. Every row has the same columns in the same order; missing values are empty.
+   University comes first; Degree Level, Program Type, Notes and Crawled At follow the base columns.
+
+After a crawl, `UniversityCsvExporter` saves the CSV of that website in `backend/data/output`, with exactly the base columns.
 
 Search, filters, the Dataset tab and the CSV all use this dataset. It is rebuilt at startup and after a crawl.
 
@@ -124,7 +134,9 @@ Search, filters, the Dataset tab and the CSV all use this dataset. It is rebuilt
 | Dates | `YYYY-MM-DD`, keeping labels | `2-Nov-26` becomes `2026-11-02` |
 | Intake | Term and year (September = Fall, January = Winter, May = Summer) | `Sep-27` becomes `Fall 2027` |
 | Mode of delivery | In person, Online, Hybrid | `On Campus or Online` becomes `In person; Online` |
-| Program type, degree level | Fixed names; the level is taken from the title if not given | `Course Based, Thesis Based` becomes `Course Based; Thesis Based` |
+| Program type, degree level | Fixed names; if not given, they come from the title and the components | `Course Based, Thesis Based` becomes `Course Based; Thesis Based` |
+| Program components | Wording of the base file | `Coursework + Thesis` becomes `Coursework + Thesis required` |
+| Percentages, years | Plain numbers with their unit | `100.00%` becomes `100%`, `1 years` becomes `1 year` |
 | Counts | Whole numbers | `1,250` becomes `1250` |
 | Text | Same spaces, apostrophes and accents | |
 
@@ -134,7 +146,7 @@ A value that does not fit is kept as it is and listed as needing a check; nothin
 
 | Principle | Where |
 |---|---|
-| Abstraction | `UniversityCrawler`, `ProgramParser`, `StringDistance` and `FieldNormalizer` interfaces |
+| Abstraction | `UniversityCrawler`, `ProgramParser`, `ProgramSource`, `StringDistance` and `FieldNormalizer` interfaces |
 | Inheritance | `AlbertaCrawler` extends `SeleniumCrawler`; `AlbertaParser` extends `HtmlProgramParser` |
 | Polymorphism | `CrawlService` uses any crawler and parser; `SpellChecker` uses any `StringDistance` |
 | Encapsulation | Private state and rules, for example in `Trie`, `InvertedIndex` and `InputValidator` |
@@ -158,13 +170,16 @@ The frontend uses these, and they also work without it. Paths start with `/api`.
 | Data validation | `POST /validate` with `{"type": "postalCode", "value": "T6G 2E1"}` |
 | Crawler | `POST /crawl` with `{"university": "ualberta", "limit": 10, "refresh": false}`; `GET /crawl` for progress; `GET /crawlers` for the universities |
 | Combined dataset | `GET /dataset`, `GET /dataset.csv`, `GET /dataset/report` |
+| CSV of one university | `GET /dataset.csv?university=University of Alberta` |
 | Crawled pages and totals | `GET /pages`, `GET /stats` |
 | Pattern and validation types | `GET /pattern-types`, `GET /validation-types` |
 
 ## Current data
 
-Only the University of Alberta is included, and only part of its program list.
-Most tuition, deadline and enrolment columns are empty because its program pages do not give them.
+| University | Source | Coverage |
+|---|---|---|
+| British Columbia | CSV from an earlier crawl | 61 master's programs in Science and Applied Science |
+| Alberta | Crawler | Part of the program list; most tuition, deadline and enrolment columns are not on its pages |
 
 ## Adding another university
 
@@ -183,7 +198,10 @@ If one page has several degrees, give each record its own URL by adding a fragme
 
 ### Without a crawler
 
-Put a JSON array in `backend/data/programs/<name>.json` and restart the backend:
+Put a CSV with the base columns in `backend/data/csv/<university name>.csv` and restart the backend.
+Degrees that share a page get their own URL automatically.
+
+Or put a JSON array, with page text, in `backend/data/programs/<name>.json`:
 
     [{
       "university": "University of Windsor",

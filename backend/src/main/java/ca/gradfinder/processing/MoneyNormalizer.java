@@ -12,6 +12,7 @@ public final class MoneyNormalizer extends TextNormalizer {
 
     @Override public NormalizedValue normalize(String raw) {
         String text = clean(raw);
+        if (text.equalsIgnoreCase("No application fee")) return new NormalizedValue("0.00", text, "");
         if (PLAIN.matcher(text).matches()) return NormalizedValue.of(number(text));
         if (FOREIGN.matcher(text).find()) return NormalizedValue.unclear(text, "not in Canadian dollars");
         List<MatchResult> amounts = AMOUNT.matcher(text).results().toList();
@@ -21,6 +22,7 @@ public final class MoneyNormalizer extends TextNormalizer {
         if (!PLAIN.matcher(m.group(1)).matches()) return NormalizedValue.unclear(text, "more than two decimals");
         String rest =(text.substring(0, m.start()) + " " + text.substring(m.end())).replaceAll("(?i)\\b(CAD|CA)\\b", "").strip();
         if (rest.matches("\\([^()]*\\)")) rest = rest.substring(1, rest.length() - 1);
+        else if (!rest.isEmpty()) rest = text; // a sentence only makes sense as a whole
         return new NormalizedValue(number(m.group(1)), clean(rest), "");
     }
 

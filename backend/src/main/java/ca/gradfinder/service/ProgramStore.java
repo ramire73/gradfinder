@@ -7,13 +7,15 @@ import java.nio.file.*;
 import java.util.*;
 import org.slf4j.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 /** Reads every data/programs/*.json file, so each teammate only needs to add their own file. */
 @Service
-public class ProgramStore {
+@Order(2)
+public class ProgramStore implements ProgramSource {
     private static final Logger log = LoggerFactory.getLogger(ProgramStore.class);
     private final ObjectMapper json;
     private final InputValidator validator;
@@ -25,7 +27,7 @@ public class ProgramStore {
         this.dir = Path.of(dataDir, "programs");
     }
 
-    public List<ProgramRecord> loadAll() {
+    @Override public List<ProgramRecord> loadAll() {
         if (!Files.isDirectory(dir)) return List.of();
         Map<String, ProgramRecord> byUrl = new LinkedHashMap<>(); // one record per URL
         try (var files = Files.list(dir)) {

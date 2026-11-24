@@ -125,7 +125,7 @@ class FeatureTests {
                 new ca.gradfinder.model.ProgramRecord("U", "B", "https://u.ca/b", "now",
                         Map.of("programType", "Thesis Based", "deliveryMode", "Online"), "research")));
         var history = new SearchHistory(json, dir.toString());
-        var engine = new SearchEngine(new ProgramDataset(store, new ProgramProcessor()), history, new PatternFinder());
+        var engine = new SearchEngine(new ProgramDataset(List.of(store), new ProgramProcessor()), history, new PatternFinder());
         engine.reload();
         assertEquals(2, engine.search("", Map.of("programType", "Thesis Based"), 0, 10, false).total());
         assertEquals(1, engine.search("", Map.of("programType", "Course Based"), 0, 10, false).total());
@@ -157,9 +157,11 @@ class FeatureTests {
     @Test void newUniversityOnlyImplementsTheInterfaces(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
         var json = tools.jackson.databind.json.JsonMapper.builder().build();
         var store = new ProgramStore(json, new InputValidator(), dir.toString());
-        var engine = new SearchEngine(new ProgramDataset(store, new ProgramProcessor()), new SearchHistory(json, dir.toString()), new PatternFinder());
+        var dataset = new ProgramDataset(List.of(store), new ProgramProcessor());
+        var exporter = new UniversityCsvExporter(dataset, dir.toString());
+        var engine = new SearchEngine(dataset, new SearchHistory(json, dir.toString()), new PatternFinder());
         var crawler = new FakeCrawler();
-        var service = new ca.gradfinder.crawler.CrawlService(store, engine, List.of(crawler), List.of(new FakeParser()), dir.toString());
+        var service = new ca.gradfinder.crawler.CrawlService(store, engine, exporter, List.of(crawler), List.of(new FakeParser()), dir.toString());
         assertEquals(Map.of("fake", "Fake University"), service.universities());
         assertThrows(IllegalArgumentException.class, () -> service.start("other", 1, false));
         for (int run = 0; run < 2; run++) {
@@ -170,10 +172,13 @@ class FeatureTests {
         }
         assertEquals(Set.of("https://fake.ca/programs/history/"), crawler.skipped);
         assertTrue(java.nio.file.Files.exists(dir.resolve("html/fake/history.html")));
+        var csv = new CsvReader().read(java.nio.file.Files.readString(dir.resolve("output/fake_programs.csv")));
+        assertEquals(2, csv.size());
+        assertEquals(ca.gradfinder.model.ProgramFields.headings(), List.copyOf(csv.getFirst().keySet()));
     }
     @Test void crawlerWithoutParserStopsAtStartup(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) {
         assertThrows(IllegalStateException.class, () ->
-                new ca.gradfinder.crawler.CrawlService(null, null, List.of(new FakeCrawler()), List.of(), dir.toString()));
+                new ca.gradfinder.crawler.CrawlService(null, null, null, List.of(new FakeCrawler()), List.of(), dir.toString()));
     }
     @Test void spellCheckerAcceptsAnyDistance() {
         StringDistance sameLength = (a, b) -> Math.abs(a.length() - b.length());
@@ -216,7 +221,7 @@ class FeatureTests {
         store.save("alberta", List.of(new ca.gradfinder.model.ProgramRecord("University of Alberta", "Certificate in X", "https://a.ca/x", "now",
                 Map.of("deliveryMode", "On Campus or Online", "intake", "Fall 2027", "canadianApplicationDeadline", "November 2, 2026",
                         "applicationFeeDomestic", "$135.00", "medianFunding", "varies"), "x, \"y\"")));
-        var dataset = new ProgramDataset(store, new ProgramProcessor());
+        var dataset = new ProgramDataset(List.of(store), new ProgramProcessor());
         dataset.reload();
         var rows = dataset.rows();
         var alberta = rows.get(0);
@@ -240,5 +245,53 @@ class FeatureTests {
         Map<String, String> row = new LinkedHashMap<>();
         row.put("a", "x, \"y\""); row.put("b", "=1+1"); row.put("c", "é");
         assertEquals("\uFEFFa,b,c\r\n\"x, \"\"y\"\"\",'=1+1,é\r\n", new CsvWriter().write(List.of(row)));
+    }
+    @Test void percentYearsAndEnrolment() {
+        assertEquals("100%", new PercentNormalizer().normalize("100.00%").value());
+        assertEquals("82.3%", new PercentNormalizer().normalize("82.30%").value());
+        assertFalse(new PercentNormalizer().normalize("140%").problem().isEmpty());
+        assertEquals("1 year", new YearsNormalizer().normalize("1 years").value());
+        assertEquals("2.7 years", new YearsNormalizer().normalize("2.7").value());
+        assertEquals("4 years (thesis-based); 6 years (course-based)", new YearsNormalizer().normalize("4 years (thesis-based); 6 years (course-based)").value());
+        assertEquals("2024", new EnrolmentYearNormalizer().normalize("2024/25").value());
+        assertEquals("0.00", new MoneyNormalizer().normalize("No application fee").value());
+        String funding = "50% of students receive $28,653 or more funding per year in the first 2 years, before tuition and fees";
+        assertEquals(new NormalizedValue("28653.00", funding, ""), new MoneyNormalizer().normalize(funding));
+    }
+    @Test void csvReader() {
+        assertEquals(List.of(Map.of("a", "x, \"y\"", "b", "line\nbreak")), new CsvReader().read("\uFEFFa,b\r\n\"x, \"\"y\"\"\",\"line\nbreak\"\r\n,\r\n"));
+    }
+    @Test void csvBaseIsCombinedWithCrawledData(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        java.nio.file.Files.createDirectories(dir.resolve("csv"));
+        java.nio.file.Files.writeString(dir.resolve("csv/University X.csv"),
+                "Specialization,Program Name,URL,Mode of Delivery,Program Components,Graduation Rate\n"
+                + "A,Master of A,https://x.ca/a,In person at X Town,Coursework only,90.00%\n"
+                + "B,Master of B (MA),https://x.ca/b,Online,Coursework + Options,\n"
+                + "B,Master of B (MSc),https://x.ca/b,Online,Coursework + Thesis required,\n"
+                + "C,,https://x.ca/c,Online,,\n");
+        var store = new ProgramStore(tools.jackson.databind.json.JsonMapper.builder().build(), new InputValidator(), dir.toString());
+        store.save("x", List.of(new ca.gradfinder.model.ProgramRecord("University X", "Master of A", "https://x.ca/a", "now",
+                Map.of("specialization", "New A", "programComponents", "Coursework"), "page")));
+        var dataset = new ProgramDataset(List.of(new CsvProgramSource(new InputValidator(), dir.toString()), store), new ProgramProcessor());
+        dataset.reload();
+        var rows = dataset.rows();
+        assertEquals(3, rows.size()); // the row without a name is skipped
+        var a = rows.getFirst();
+        assertEquals("New A", a.get("Specialization"));  // crawled value wins
+        assertEquals("90%", a.get("Graduation Rate"));   // base value fills the gap
+        assertEquals("In person", a.get("Mode of Delivery"));
+        assertEquals("Mode of Delivery: at X Town", a.get("Notes"));
+        assertEquals("Coursework only", a.get("Program Components"));
+        assertEquals("Course Based", a.get("Program Type"));
+        assertEquals("https://x.ca/b#master-of-b-msc", rows.get(2).get("URL"));
+        assertEquals("Thesis Based", rows.get(2).get("Program Type"));
+        assertEquals("", rows.get(1).get("Program Type"));
+    }
+    @Test void ubcFileIsTheBaseFormat() throws Exception {
+        String csv = java.nio.file.Files.readString(java.nio.file.Path.of("data/csv/University of British Columbia.csv"));
+        String header = csv.lines().findFirst().orElseThrow().replace("\uFEFF", "");
+        assertEquals(List.of(header.split(",")), ca.gradfinder.model.ProgramFields.headings());
+        assertEquals(new CsvReader().read(csv).size(), new CsvProgramSource(new InputValidator(), "data").loadAll().stream()
+                .filter(r -> r.university().equals("University of British Columbia")).count());
     }
 }

@@ -21,11 +21,17 @@ public final class ChoiceNormalizer extends TextNormalizer {
     @Override public NormalizedValue normalize(String raw) {
         String text = clean(raw);
         Set<String> found = new TreeSet<>(Comparator.comparingInt(order::indexOf));
+        List<String> notes = new ArrayList<>();
         for (String part : text.split(separators)) {
+            int at = part.indexOf(" at "); // "In person at UBC Vancouver"
+            if (at > 0) {
+                notes.add(part.substring(at + 1).strip());
+                part = part.substring(0, at);
+            }
             String name = wordings.get(part.strip().toLowerCase(Locale.ROOT));
             if (name == null) return NormalizedValue.unclear(text, "unknown choice: " + part.strip());
             found.add(name);
         }
-        return NormalizedValue.of(String.join("; ", found));
+        return new NormalizedValue(String.join("; ", found), String.join("; ", notes), "");
     }
 }

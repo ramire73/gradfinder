@@ -1,12 +1,12 @@
 package ca.gradfinder.processing;
 
 import ca.gradfinder.model.*;
-import ca.gradfinder.service.ProgramStore;
+import ca.gradfinder.service.ProgramSource;
 import java.util.*;
 import org.springframework.stereotype.Service;
 
 /**
- * One dataset of all universities in one format. The files in data/programs keep the original values;
+ * One dataset of all universities in the base format. The files in data keep the original values;
  * this is rebuilt from them, so processing rules can change without crawling again.
  */
 @Service
@@ -14,30 +14,58 @@ public class ProgramDataset {
     public record Issue(String university, String program, String column, String value, String reason) {}
     public record Report(int programs, Map<String, Integer> programsPerUniversity, Map<String, Integer> filledPerColumn, List<Issue> issues) {}
 
-    private final ProgramStore store;
+    private final List<ProgramSource> sources;
     private final ProgramProcessor processor;
     private volatile List<ProcessedProgram> programs = List.of();
 
-    public ProgramDataset(ProgramStore store, ProgramProcessor processor) { this.store = store; this.processor = processor; }
+    public ProgramDataset(List<ProgramSource> sources, ProgramProcessor processor) { this.sources = sources; this.processor = processor; }
 
     public List<ProgramRecord> reload() {
-        programs = store.loadAll().stream().map(processor::process)
+        programs = combine().stream().map(processor::process)
                 .sorted(Comparator.comparing((ProcessedProgram p) -> p.program().university()).thenComparing(p -> p.program().title())
                         .thenComparing(p -> p.program().url())).toList();
         return programs.stream().map(ProcessedProgram::program).toList();
     }
 
+    /** One record per URL. Later sources are newer: their values win, and earlier ones fill the gaps. */
+    private Collection<ProgramRecord> combine() {
+        Map<String, ProgramRecord> byUrl = new LinkedHashMap<>();
+        for (ProgramSource source : sources)
+            for (ProgramRecord r : source.loadAll()) byUrl.merge(r.url(), r, this::merge);
+        return byUrl.values();
+    }
+
+    private ProgramRecord merge(ProgramRecord base, ProgramRecord newer) {
+        Map<String, String> fields = new LinkedHashMap<>(base.fields());
+        fields.putAll(newer.fields());
+        return new ProgramRecord(newer.university(), newer.title(), newer.url(), newer.crawledAt(), fields, newer.text());
+    }
+
     /** Every row has every column, in the same order. A value the university does not give is empty. */
     public List<Map<String, String>> rows() { return programs.stream().map(this::row).toList(); }
+
+    /** The programs of one university with exactly the base columns. */
+    public List<Map<String, String>> baseRows(String university) {
+        List<Map<String, String>> out = new ArrayList<>();
+        for (Map<String, String> row : rows()) {
+            if (!row.get("University").equals(university)) continue;
+            Map<String, String> base = new LinkedHashMap<>();
+            ProgramFields.headings().forEach(heading -> base.put(heading, row.get(heading)));
+            out.add(base);
+        }
+        return out;
+    }
 
     private Map<String, String> row(ProcessedProgram p) {
         ProgramRecord r = p.program();
         Map<String, String> row = new LinkedHashMap<>();
         row.put("University", r.university());
-        row.put("Program Name", r.title());
-        row.put("Degree Level", r.fields().getOrDefault("degreeLevel", ""));
-        row.put("URL", r.url());
+        ProgramFields.headings().forEach(heading -> row.put(heading, "")); // keeps the order of the base format
         ProgramFields.COLUMNS.forEach((key, heading) -> row.put(heading, r.fields().getOrDefault(key, "")));
+        row.put(ProgramFields.PROGRAM_NAME, r.title());
+        row.put(ProgramFields.URL, r.url());
+        row.put("Degree Level", r.fields().getOrDefault("degreeLevel", ""));
+        row.put("Program Type", r.fields().getOrDefault("programType", ""));
         List<String> notes = new ArrayList<>();
         p.notes().forEach((key, note) -> notes.add(heading(key) + ": " + note));
         row.put("Notes", String.join("; ", notes));
@@ -59,5 +87,5 @@ public class ProgramDataset {
         return new Report(programs.size(), universities, filled, issues);
     }
 
-    private String heading(String key) { return ProgramFields.COLUMNS.getOrDefault(key, key.equals("degreeLevel") ? "Degree Level" : key); }
+    private String heading(String key) { return ProgramFields.COLUMNS.getOrDefault(key, key.equals("degreeLevel") ? "Degree Level" : key.equals("programType") ? "Program Type" : key); }
 }

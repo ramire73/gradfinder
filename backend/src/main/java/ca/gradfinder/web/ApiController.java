@@ -46,10 +46,12 @@ public class ApiController {
     @GetMapping("/dataset/report") public Object datasetReport() { return dataset.report(); }
 
     @GetMapping("/dataset.csv")
-    public ResponseEntity<byte[]> datasetCsv() {
+    public ResponseEntity<byte[]> datasetCsv(@RequestParam(defaultValue = "") String university) {
+        var rows = university.isBlank() ? dataset.rows() : dataset.baseRows(university);
+        if (rows.isEmpty() && !university.isBlank()) throw new NoSuchElementException("No programs for that university.");
         return ResponseEntity.ok().contentType(MediaType.parseMediaType("text/csv;charset=UTF-8"))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"graduate-programs.csv\"")
-                .body(csv.write(dataset.rows()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                .body(csv.write(rows).getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     @GetMapping("/filters") public Object filters() { return engine.filterOptions(); }

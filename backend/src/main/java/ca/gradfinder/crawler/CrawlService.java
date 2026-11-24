@@ -2,6 +2,7 @@ package ca.gradfinder.crawler;
 
 import ca.gradfinder.model.ProgramRecord;
 import ca.gradfinder.parser.ProgramParser;
+import ca.gradfinder.processing.UniversityCsvExporter;
 import ca.gradfinder.service.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -22,6 +23,7 @@ public class CrawlService {
     private static final Logger log = LoggerFactory.getLogger(CrawlService.class);
     private final ProgramStore store;
     private final SearchEngine engine;
+    private final UniversityCsvExporter exporter;
     private final Path htmlDir;
     private final Map<String, UniversityCrawler> crawlers = new TreeMap<>();
     private final Map<String, ProgramParser> parsers = new TreeMap<>();
@@ -29,10 +31,11 @@ public class CrawlService {
     private volatile String message = "Not started";
     private volatile int saved;
 
-    public CrawlService(ProgramStore store, SearchEngine engine, List<UniversityCrawler> crawlers,
+    public CrawlService(ProgramStore store, SearchEngine engine, UniversityCsvExporter exporter, List<UniversityCrawler> crawlers,
                         List<ProgramParser> parsers, @Value("${gradfinder.data-dir}") String dataDir) {
         this.store = store;
         this.engine = engine;
+        this.exporter = exporter;
         this.htmlDir = Path.of(dataDir, "html");
         for (UniversityCrawler c : crawlers) {
             if (!c.code().matches("[a-z0-9-]+")) throw new IllegalStateException("Invalid university code: " + c.code());
@@ -92,8 +95,15 @@ public class CrawlService {
             log.error("Crawl failed", e);
             report("Stopped: " + String.valueOf(e.getMessage()).lines().findFirst().orElse(""));
         } finally {
-            engine.reload();
-            running.set(false);
+            try {
+                engine.reload();
+                log.info("Saved {}", exporter.export(crawler.code(), crawler.university()));
+            } catch (IOException | RuntimeException e) {
+                log.error("Could not save the CSV", e);
+                report(message + " (the CSV could not be saved)");
+            } finally {
+                running.set(false);
+            }
         }
     }
 
